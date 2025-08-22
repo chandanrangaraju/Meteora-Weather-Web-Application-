@@ -1,4 +1,5 @@
 Meteora (Weather Web App)
+
 Meteora is a modern weather dashboard that fetches real-time weather data using external APIs.
 It features a sleek tactical-style UI (Next.js + TailwindCSS) with a backend powered by Node.js, providing fast, responsive, and reliable weather updates.
 
@@ -47,4 +48,5 @@ npm run dev
 
 
 <img width="1920" height="1007" alt="Meteora" src="https://github.com/user-attachments/assets/7846f6a6-c85a-4767-ae33-ce7a589af101" />
+
 
