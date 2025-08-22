@@ -1,24 +1,11 @@
 import type React from "react"
 import type { Metadata } from "next"
-import { Geist } from "next/font/google"
-import { Manrope } from "next/font/google"
+import { GeistMono } from "geist/font/mono"
 import "./globals.css"
 
-const geist = Geist({
-  subsets: ["latin"],
-  display: "swap",
-  variable: "--font-geist",
-})
-
-const manrope = Manrope({
-  subsets: ["latin"],
-  display: "swap",
-  variable: "--font-manrope",
-})
-
 export const metadata: Metadata = {
-  title: "Premium Weather - Sophisticated Weather Forecasting",
-  description: "Experience weather like never before with our premium, elegant interface",
+  title: "Meteora",
+  description: "Weather Intelligence Command Center",
   generator: "v0.app",
 }
 
@@ -28,8 +15,16 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className={`${geist.variable} ${manrope.variable} antialiased`}>
-      <body className="weather-gradient dark:weather-gradient-dark min-h-screen">{children}</body>
+    <html lang="en" className="dark">
+      <head>
+        <style>{`
+html {
+  font-family: ${GeistMono.style.fontFamily};
+  --font-mono: ${GeistMono.variable};
+}
+        `}</style>
+      </head>
+      <body className="font-mono antialiased">{children}</body>
     </html>
   )
 }

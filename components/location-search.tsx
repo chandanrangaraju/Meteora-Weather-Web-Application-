@@ -3,79 +3,151 @@
 import type React from "react"
 
 import { useState, useEffect, useRef } from "react"
-import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
-import { Search, MapPin, Loader2, Navigation, Clock, X } from "lucide-react"
-import { useGeolocation } from "@/hooks/use-geolocation"
+import { Input } from "@/components/ui/input"
+import { Search, MapPin, Clock, X, Crosshair, Globe } from "lucide-react"
 
 interface LocationSuggestion {
   name: string
-  region: string
   country: string
-  displayName: string
-  coordinates: { lat: number; lon: number }
+  state?: string
+  lat: number
+  lon: number
+  display: string
+  type: string
 }
 
 interface LocationSearchProps {
-  onLocationSelect: (location: string) => void
-  loading?: boolean
+  currentLocation: string
+  onLocationChange: (location: string, coordinates?: { lat: number; lon: number }) => void
+  isLoading: boolean
 }
 
-export function LocationSearch({ onLocationSelect, loading = false }: LocationSearchProps) {
-  const [searchQuery, setSearchQuery] = useState("")
+export function LocationSearch({ currentLocation, onLocationChange, isLoading }: LocationSearchProps) {
+  const [searchInput, setSearchInput] = useState("")
   const [suggestions, setSuggestions] = useState<LocationSuggestion[]>([])
   const [showSuggestions, setShowSuggestions] = useState(false)
-  const [recentSearches, setRecentSearches] = useState<string[]>([])
-  const [loadingSuggestions, setLoadingSuggestions] = useState(false)
+  const [recentLocations, setRecentLocations] = useState<string[]>([])
+  const [isGeolocating, setIsGeolocating] = useState(false)
+  const [searchType, setSearchType] = useState<"name" | "coordinates" | "postal">("name")
   const searchRef = useRef<HTMLDivElement>(null)
-  const { coordinates, loading: geoLoading, error: geoError, getCurrentLocation } = useGeolocation()
 
+  // Load recent locations from localStorage
   useEffect(() => {
-    // Load recent searches from localStorage
-    const saved = localStorage.getItem("weather-recent-searches")
+    const saved = localStorage.getItem("tactical-weather-recent-locations")
     if (saved) {
-      try {
-        setRecentSearches(JSON.parse(saved))
-      } catch (e) {
-        console.error("Failed to parse recent searches:", e)
-      }
+      setRecentLocations(JSON.parse(saved))
     }
   }, [])
 
-  useEffect(() => {
-    // Handle geolocation result
-    if (coordinates) {
-      const locationString = `${coordinates.lat},${coordinates.lon}`
-      onLocationSelect(locationString)
+  // Save recent locations to localStorage
+  const saveRecentLocation = (location: string) => {
+    const updated = [location, ...recentLocations.filter((l) => l !== location)].slice(0, 5)
+    setRecentLocations(updated)
+    localStorage.setItem("tactical-weather-recent-locations", JSON.stringify(updated))
+  }
+
+  // Fetch location suggestions
+  const fetchSuggestions = async (query: string) => {
+    if (query.length < 2) {
+      setSuggestions([])
+      return
     }
-  }, [coordinates, onLocationSelect])
 
-  useEffect(() => {
-    const fetchSuggestions = async () => {
-      if (searchQuery.length < 2) {
-        setSuggestions([])
-        return
-      }
+    try {
+      const apiKey = process.env.NEXT_PUBLIC_OPENWEATHER_API_KEY || "demo_key"
+      let suggestions: LocationSuggestion[] = []
 
-      setLoadingSuggestions(true)
-      try {
-        const response = await fetch(`/api/locations?q=${encodeURIComponent(searchQuery)}`)
-        const result = await response.json()
-        if (result.success) {
-          setSuggestions(result.data)
+      // Detect search type
+      const coordinatePattern = /^-?\d+\.?\d*,\s*-?\d+\.?\d*$/
+      const postalPattern = /^\d{5}(-\d{4})?$|^[A-Z]\d[A-Z]\s?\d[A-Z]\d$/i
+
+      if (coordinatePattern.test(query.trim())) {
+        // Coordinate search
+        const [lat, lon] = query.split(",").map((s) => Number.parseFloat(s.trim()))
+        if (!isNaN(lat) && !isNaN(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+          const response = await fetch(
+            `https://api.openweathermap.org/geo/1.0/reverse?lat=${lat}&lon=${lon}&limit=5&appid=${apiKey}`,
+          )
+          if (response.ok) {
+            const data = await response.json()
+            suggestions = data.map((item: any) => ({
+              name: item.name,
+              country: item.country,
+              state: item.state,
+              lat: item.lat,
+              lon: item.lon,
+              display: `${item.name}, ${item.state ? item.state + ", " : ""}${item.country}`,
+              type: "coordinate",
+            }))
+          }
         }
-      } catch (error) {
-        console.error("Failed to fetch suggestions:", error)
-      } finally {
-        setLoadingSuggestions(false)
+      } else if (postalPattern.test(query.trim())) {
+        // Postal code search
+        const response = await fetch(
+          `https://api.openweathermap.org/geo/1.0/zip?zip=${encodeURIComponent(query.trim())}&appid=${apiKey}`,
+        )
+        if (response.ok) {
+          const data = await response.json()
+          suggestions = [
+            {
+              name: data.name,
+              country: data.country,
+              lat: data.lat,
+              lon: data.lon,
+              display: `${data.name}, ${data.country} (${query.trim()})`,
+              type: "postal",
+            },
+          ]
+        }
+      } else {
+        // Enhanced city/location name search with increased limit
+        const response = await fetch(
+          `https://api.openweathermap.org/geo/1.0/direct?q=${encodeURIComponent(query)}&limit=15&appid=${apiKey}`,
+        )
+        if (response.ok) {
+          const data = await response.json()
+          suggestions = data.map((item: any) => ({
+            name: item.name,
+            country: item.country,
+            state: item.state,
+            lat: item.lat,
+            lon: item.lon,
+            display: `${item.name}, ${item.state ? item.state + ", " : ""}${item.country}`,
+            type: "city",
+          }))
+        }
       }
+
+      // Remove duplicates and sort by relevance
+      const uniqueSuggestions = suggestions.filter(
+        (suggestion, index, self) =>
+          index === self.findIndex((s) => s.lat === suggestion.lat && s.lon === suggestion.lon),
+      )
+
+      setSuggestions(uniqueSuggestions)
+    } catch (error) {
+      console.error("Failed to fetch location suggestions:", error)
+      setSuggestions([])
     }
+  }
 
-    const debounceTimer = setTimeout(fetchSuggestions, 300)
-    return () => clearTimeout(debounceTimer)
-  }, [searchQuery])
+  // Handle input change with debouncing
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (searchInput) {
+        fetchSuggestions(searchInput)
+        setShowSuggestions(true)
+      } else {
+        setSuggestions([])
+        setShowSuggestions(false)
+      }
+    }, 300)
 
+    return () => clearTimeout(timer)
+  }, [searchInput])
+
+  // Handle click outside to close suggestions
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
@@ -87,147 +159,191 @@ export function LocationSearch({ onLocationSelect, loading = false }: LocationSe
     return () => document.removeEventListener("mousedown", handleClickOutside)
   }, [])
 
-  const handleSearch = () => {
-    if (searchQuery.trim()) {
-      selectLocation(searchQuery.trim())
-    }
-  }
-
-  const selectLocation = (location: string) => {
-    onLocationSelect(location)
-    setSearchQuery("")
+  const handleSearch = (location: string, coordinates?: { lat: number; lon: number }) => {
+    onLocationChange(location, coordinates)
+    saveRecentLocation(location)
+    setSearchInput("")
     setShowSuggestions(false)
-
-    // Add to recent searches
-    const updated = [location, ...recentSearches.filter((s) => s !== location)].slice(0, 5)
-    setRecentSearches(updated)
-    localStorage.setItem("weather-recent-searches", JSON.stringify(updated))
-  }
-
-  const removeRecentSearch = (location: string, e: React.MouseEvent) => {
-    e.stopPropagation()
-    const updated = recentSearches.filter((s) => s !== location)
-    setRecentSearches(updated)
-    localStorage.setItem("weather-recent-searches", JSON.stringify(updated))
   }
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
-      handleSearch()
+      if (suggestions.length > 0) {
+        const first = suggestions[0]
+        handleSearch(first.display, { lat: first.lat, lon: first.lon })
+      } else if (searchInput.trim()) {
+        handleSearch(searchInput.trim())
+      }
     }
   }
 
-  return (
-    <div ref={searchRef} className="relative">
-      <Card className="glass border-0 shadow-2xl">
-        <CardContent className="p-6">
-          <div className="flex gap-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-              <Input
-                placeholder="Search for a city or location..."
-                value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value)
-                  setShowSuggestions(true)
-                }}
-                onKeyPress={handleKeyPress}
-                onFocus={() => setShowSuggestions(true)}
-                className="pl-10 h-12 text-lg border-0 bg-background/50 backdrop-blur-sm"
-                disabled={loading}
-              />
-            </div>
-            <Button
-              size="lg"
-              className="h-12 px-8 font-semibold"
-              onClick={handleSearch}
-              disabled={loading || !searchQuery.trim()}
-            >
-              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Search"}
-            </Button>
-            <Button
-              size="lg"
-              variant="outline"
-              className="h-12 px-4 bg-transparent"
-              onClick={getCurrentLocation}
-              disabled={geoLoading}
-              title="Use current location"
-            >
-              {geoLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Navigation className="h-4 w-4" />}
-            </Button>
-          </div>
+  const handleGeolocation = () => {
+    if (!navigator.geolocation) {
+      alert("Geolocation is not supported by this browser.")
+      return
+    }
 
-          {geoError && (
-            <div className="mt-4 p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
-              <p className="text-sm text-destructive font-serif">{geoError}</p>
+    setIsGeolocating(true)
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords
+        try {
+          // Reverse geocoding to get location name
+          const apiKey = process.env.NEXT_PUBLIC_OPENWEATHER_API_KEY || "demo_key"
+          const response = await fetch(
+            `https://api.openweathermap.org/geo/1.0/reverse?lat=${latitude}&lon=${longitude}&limit=1&appid=${apiKey}`,
+          )
+
+          if (response.ok) {
+            const data = await response.json()
+            if (data.length > 0) {
+              const location = `${data[0].name}, ${data[0].country}`
+              handleSearch(location, { lat: latitude, lon: longitude })
+            }
+          }
+        } catch (error) {
+          console.error("Failed to get location name:", error)
+          handleSearch("Current Location", { lat: latitude, lon: longitude })
+        } finally {
+          setIsGeolocating(false)
+        }
+      },
+      (error) => {
+        console.error("Geolocation error:", error)
+        setIsGeolocating(false)
+        alert("Failed to get your location. Please check your browser permissions.")
+      },
+    )
+  }
+
+  return (
+    <div className="relative" ref={searchRef}>
+      <div className="flex items-center gap-2">
+        <div className="relative">
+          <Input
+            placeholder="City, coordinates (lat,lon), or postal code..."
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            onKeyPress={handleKeyPress}
+            onFocus={() => setShowSuggestions(searchInput.length >= 2 || recentLocations.length > 0)}
+            className="w-80 bg-input border-border text-xs font-mono pr-8"
+          />
+          {searchInput && (
+            <Button
+              onClick={() => {
+                setSearchInput("")
+                setShowSuggestions(false)
+              }}
+              size="sm"
+              variant="ghost"
+              className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 p-0 hover:bg-transparent"
+            >
+              <X className="h-3 w-3" />
+            </Button>
+          )}
+        </div>
+
+        <Button
+          onClick={() => {
+            if (suggestions.length > 0) {
+              const first = suggestions[0]
+              handleSearch(first.display, { lat: first.lat, lon: first.lon })
+            } else if (searchInput.trim()) {
+              handleSearch(searchInput.trim())
+            }
+          }}
+          size="sm"
+          disabled={isLoading}
+          className="bg-primary hover:bg-primary/80"
+        >
+          <Search className="h-4 w-4" />
+        </Button>
+
+        <Button
+          onClick={handleGeolocation}
+          size="sm"
+          variant="outline"
+          disabled={isGeolocating}
+          className="border-border bg-transparent"
+          title="Use current location"
+        >
+          <Crosshair className={`h-4 w-4 ${isGeolocating ? "animate-spin" : ""}`} />
+        </Button>
+      </div>
+
+      {/* Enhanced suggestions dropdown */}
+      {showSuggestions && (
+        <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-sm shadow-lg z-50 max-h-80 overflow-y-auto">
+          {/* Search format help */}
+          {!searchInput && (
+            <div className="p-2 border-b border-border">
+              <div className="flex items-center gap-2 mb-2">
+                <Globe className="h-3 w-3 text-muted-foreground" />
+                <span className="tactical-header text-xs">GLOBAL SEARCH FORMATS</span>
+              </div>
+              <div className="text-xs font-mono text-muted-foreground space-y-1">
+                <div>• City: "Tokyo", "New York", "Mumbai"</div>
+                <div>• Coordinates: "40.7128,-74.0060"</div>
+                <div>• Postal: "10001", "SW1A 1AA"</div>
+              </div>
             </div>
           )}
-        </CardContent>
-      </Card>
 
-      {/* Suggestions Dropdown */}
-      {showSuggestions && (searchQuery.length >= 2 || recentSearches.length > 0) && (
-        <Card className="absolute top-full left-0 right-0 mt-2 glass border-0 shadow-2xl z-50">
-          <CardContent className="p-4">
-            {loadingSuggestions ? (
-              <div className="flex items-center gap-2 py-2">
-                <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                <span className="text-sm font-serif">Searching locations...</span>
+          {/* Recent locations */}
+          {recentLocations.length > 0 && !searchInput && (
+            <div className="p-2 border-b border-border">
+              <div className="flex items-center gap-2 mb-2">
+                <Clock className="h-3 w-3 text-muted-foreground" />
+                <span className="tactical-header text-xs">RECENT TARGETS</span>
               </div>
-            ) : (
-              <div className="space-y-2">
-                {suggestions.length > 0 && (
-                  <div>
-                    <h4 className="text-sm font-semibold text-muted-foreground mb-2 font-serif">Suggestions</h4>
-                    {suggestions.map((suggestion, index) => (
-                      <button
-                        key={index}
-                        onClick={() => selectLocation(suggestion.displayName)}
-                        className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-muted/30 transition-colors text-left"
-                      >
-                        <MapPin className="h-4 w-4 text-primary flex-shrink-0" />
-                        <div className="flex-1">
-                          <div className="font-medium font-sans">{suggestion.name}</div>
-                          <div className="text-sm text-muted-foreground font-serif">
-                            {suggestion.region}, {suggestion.country}
-                          </div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
+              {recentLocations.map((location, index) => (
+                <button
+                  key={index}
+                  onClick={() => handleSearch(location)}
+                  className="w-full text-left px-2 py-1 text-xs font-mono hover:bg-accent rounded-sm"
+                >
+                  {location}
+                </button>
+              ))}
+            </div>
+          )}
 
-                {recentSearches.length > 0 && searchQuery.length < 2 && (
-                  <div>
-                    <h4 className="text-sm font-semibold text-muted-foreground mb-2 font-serif">Recent Searches</h4>
-                    {recentSearches.map((location, index) => (
-                      <button
-                        key={index}
-                        onClick={() => selectLocation(location)}
-                        className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-muted/30 transition-colors text-left group"
-                      >
-                        <Clock className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                        <div className="flex-1 font-serif">{location}</div>
-                        <button
-                          onClick={(e) => removeRecentSearch(location, e)}
-                          className="opacity-0 group-hover:opacity-100 p-1 hover:bg-muted/50 rounded transition-all"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {suggestions.length === 0 && searchQuery.length >= 2 && !loadingSuggestions && (
-                  <div className="py-4 text-center text-muted-foreground font-serif">
-                    No locations found for "{searchQuery}"
-                  </div>
-                )}
+          {/* Enhanced location suggestions with type indicators */}
+          {suggestions.length > 0 && (
+            <div className="p-2">
+              <div className="flex items-center gap-2 mb-2">
+                <MapPin className="h-3 w-3 text-muted-foreground" />
+                <span className="tactical-header text-xs">GLOBAL TARGETS ({suggestions.length})</span>
               </div>
-            )}
-          </CardContent>
-        </Card>
+              {suggestions.map((suggestion, index) => (
+                <button
+                  key={index}
+                  onClick={() => handleSearch(suggestion.display, { lat: suggestion.lat, lon: suggestion.lon })}
+                  className="w-full text-left px-2 py-1 text-xs font-mono hover:bg-accent rounded-sm flex justify-between items-center group"
+                >
+                  <div className="flex flex-col">
+                    <span>{suggestion.display}</span>
+                    <span className="text-muted-foreground text-xs">
+                      {suggestion.type.toUpperCase()} • {suggestion.lat.toFixed(4)}, {suggestion.lon.toFixed(4)}
+                    </span>
+                  </div>
+                  <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                    <MapPin className="h-3 w-3 text-primary" />
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* No results */}
+          {searchInput.length >= 2 && suggestions.length === 0 && (
+            <div className="p-4 text-center text-muted-foreground text-xs">
+              <Globe className="h-4 w-4 mx-auto mb-2 opacity-50" />
+              NO GLOBAL TARGETS FOUND
+              <div className="mt-1 text-xs">Try: city name, lat,lon, or postal code</div>
+            </div>
+          )}
+        </div>
       )}
     </div>
   )
