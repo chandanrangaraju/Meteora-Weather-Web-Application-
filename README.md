@@ -31,7 +31,7 @@ cd Meteora-Weather-Web-Application
 
 2. Install dependencies:
 pnpm install
-# or
+or
 npm install
 
 3. Configure environment variables: Create a .env.local file in the project root and add your weather
@@ -40,10 +40,11 @@ NEXT_PUBLIC_WEATHER_API_KEY=your_api_key_here
 
 4. Run the development server:
 pnpm dev
-# or
+or
 npm run dev
 
 5. Open http://localhost:3000 in your browser.
 
 
 <img width="1920" height="1007" alt="Meteora" src="https://github.com/user-attachments/assets/7846f6a6-c85a-4767-ae33-ce7a589af101" />
+
