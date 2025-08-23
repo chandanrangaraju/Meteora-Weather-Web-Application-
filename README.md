@@ -27,26 +27,35 @@ Weather Data: OpenWeather API
 Installation & Setup
 
 1. Clone the repository:
+```bash
 git clone https://github.com/chandanrangaraju/Meteora-Weather-Web-Application.git
 cd Meteora-Weather-Web-Application
+```
 
-2. Install dependencies:
+3. Install dependencies:
+```bash
 pnpm install
 or
 npm install
+```
 
-3. Configure environment variables: Create a .env.local file in the project root and add your weather
+5. Configure environment variables: Create a .env.local file in the project root and add your weather
 API key:
 NEXT_PUBLIC_WEATHER_API_KEY=your_api_key_here
 
-4. Run the development server:
+6. Run the development server:
+```bash
 pnpm dev
 or
 npm run dev
+```
 
-5. Open http://localhost:3000 in your browser.
+8. Open in browser
+
+http://localhost:3000
 
 
 <img width="1920" height="1007" alt="Meteora" src="https://github.com/user-attachments/assets/7846f6a6-c85a-4767-ae33-ce7a589af101" />
+
 
 
